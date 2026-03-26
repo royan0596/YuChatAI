@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>隐私政策 - 闲鱼智能客服助手</title>
+    <style>
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+        background: #f9f9f9;
+        color: #333;
+        line-height: 1.8;
+        padding: 40px 20px;
+      }
+      .container {
+        max-width: 720px;
+        margin: 0 auto;
+        background: #fff;
+        border-radius: 12px;
+        padding: 40px;
+        box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+      }
+      h1 { font-size: 24px; margin-bottom: 8px; }
+      .update-date { color: #999; font-size: 14px; margin-bottom: 32px; }
+      h2 { font-size: 18px; margin: 24px 0 12px; color: #1a1a1a; }
+      p, li { font-size: 15px; color: #444; margin-bottom: 8px; }
+      ul { padding-left: 20px; margin-bottom: 16px; }
+      .highlight { background: #FFF7CC; padding: 12px 16px; border-radius: 8px; margin: 16px 0; }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>隐私政策</h1>
+      <p class="update-date">最后更新日期：2026年3月27日</p>
+
+      <p>「闲鱼智能客服助手」（以下简称"本扩展"）尊重并保护用户的隐私。本隐私政策说明本扩展如何收集、使用和保护您的信息。</p>
+
+      <h2>1. 信息收集与使用</h2>
+      <p>本扩展在运行过程中会处理以下信息：</p>
+      <ul>
+        <li><strong>闲鱼聊天消息</strong>：读取买家发送的消息内容，用于生成 AI 回复。仅在用户明确授权自动直发后，系统才会自动向买家发送回复。消息仅在本地处理和临时存储，不会上传至本扩展开发者的服务器。</li>
+        <li><strong>商品信息</strong>：读取当前会话关联的商品标题，用于提供更准确的回复。</li>
+        <li><strong>用户配置</strong>：包括 AI 服务设置、通知设置、知识库内容等，存储在 Chrome 浏览器本地存储中（chrome.storage）。</li>
+      </ul>
+
+      <h2>2. 第三方服务</h2>
+      <p>本扩展需要调用以下第三方 AI 服务来生成回复，您的消息内容会被发送至您所选择的 AI 服务商：</p>
+      <ul>
+        <li>DeepSeek（https://api.deepseek.com）</li>
+        <li>OpenAI（https://api.openai.com）</li>
+        <li>阿里云通义千问（https://dashscope.aliyuncs.com）</li>
+        <li>或您自行配置的其他 AI 服务</li>
+      </ul>
+      <p>请注意，这些第三方服务有各自的隐私政策，建议您阅读相关条款。</p>
+
+      <h2>3. 通知服务</h2>
+      <p>如果您启用了订单通知功能，订单相关信息（商品名称、金额）会通过您配置的通知渠道发送：</p>
+      <ul>
+        <li>浏览器通知（本地，不涉及第三方）</li>
+        <li>钉钉机器人（您配置的 Webhook 地址）</li>
+        <li>飞书机器人（您配置的 Webhook 地址）</li>
+        <li>Telegram Bot（https://api.telegram.org）</li>
+      </ul>
+
+      <h2>4. 数据存储</h2>
+      <div class="highlight">
+        <strong>本扩展不设有独立服务器，不会将您的数据上传到本扩展开发者的任何服务器。</strong>
+      </div>
+      <ul>
+        <li>所有配置数据存储在 Chrome 浏览器的本地存储中（chrome.storage.sync / chrome.storage.local）。</li>
+        <li>消息日志仅保存在本地，用于您在扩展界面中查看历史记录。</li>
+        <li>API Key 等敏感信息仅存储在浏览器本地，不会被传输至本扩展开发者。</li>
+      </ul>
+
+      <h2>5. Cookie 使用</h2>
+      <p>本扩展读取闲鱼网站的登录 Cookie（如 _m_h5_tk），仅用于：</p>
+      <ul>
+        <li>验证您的闲鱼登录状态</li>
+        <li>通过闲鱼官方 API 获取消息和发送回复</li>
+      </ul>
+      <p>本扩展不会将您的 Cookie 传输至任何第三方。</p>
+
+      <h2>6. 权限说明</h2>
+      <ul>
+        <li><strong>storage</strong>：存储扩展配置和消息日志</li>
+        <li><strong>notifications</strong>：发送浏览器桌面通知</li>
+        <li><strong>tabs</strong>：与闲鱼页面通信，发送和接收消息</li>
+        <li><strong>cookies</strong>：检测闲鱼登录状态</li>
+        <li><strong>scripting</strong>：在闲鱼页面注入消息监听脚本</li>
+        <li><strong>sidePanel</strong>：提供侧边栏操作面板</li>
+      </ul>
+
+      <h2>7. 数据安全</h2>
+      <p>本扩展采取以下措施保护您的数据安全：</p>
+      <ul>
+        <li>所有与 AI 服务的通信均使用 HTTPS 加密传输</li>
+        <li>不在日志中记录完整的 API Key</li>
+        <li>仅在必要时访问闲鱼页面数据</li>
+      </ul>
+
+      <h2>8. 用户权利</h2>
+      <p>您可以随时：</p>
+      <ul>
+        <li>在扩展设置页面查看和修改所有配置</li>
+        <li>通过"重置所有设置"清除所有本地数据</li>
+        <li>卸载扩展以删除所有相关数据</li>
+      </ul>
+
+      <h2>9. 政策更新</h2>
+      <p>本隐私政策可能会不时更新。更新后的政策将在本页面发布，并更新"最后更新日期"。</p>
+
+      <h2>10. 联系我们</h2>
+      <p>如果您对本隐私政策有任何疑问，请通过以下方式联系：</p>
+      <ul>
+        <li>GitHub：<a href="https://github.com/royan0596/YuChatAI" target="_blank" rel="noopener noreferrer">https://github.com/royan0596/YuChatAI</a></li>
+        <li>Telegram：<a href="https://t.me/Global_Acc_Hub" target="_blank" rel="noopener noreferrer">@Global_Acc_Hub</a></li>
+      </ul>
+    </div>
+  </body>
+</html>

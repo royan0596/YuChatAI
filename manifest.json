@@ -1,0 +1,61 @@
+{
+  "manifest_version": 3,
+  "name": "闲鱼智能客服助手",
+  "version": "1.0.0",
+  "description": "闲鱼智能客服 Chrome 扩展，支持 AI 自动回复与订单通知。",
+  "permissions": [
+    "storage",
+    "notifications",
+    "tabs",
+    "cookies",
+    "scripting",
+    "sidePanel"
+  ],
+  "host_permissions": [
+    "https://*.goofish.com/*",
+    "https://*.idlefish.com/*",
+    "wss://wss-goofish.dingtalk.com/*",
+    "https://api.openai.com/*",
+    "https://api.deepseek.com/*",
+    "https://dashscope.aliyuncs.com/*",
+    "https://api.telegram.org/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.goofish.com/*",
+        "https://*.idlefish.com/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_start"
+    }
+  ],
+  "action": {
+    "default_title": "闲鱼智能客服助手",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png"
+    }
+  },
+  "side_panel": {
+    "default_path": "src/sidepanel/index.html"
+  },
+  "options_page": "src/options/index.html",
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["assets/*", "content-injected.js"],
+      "matches": ["https://*.goofish.com/*", "https://*.idlefish.com/*"]
+    }
+  ]
+}
