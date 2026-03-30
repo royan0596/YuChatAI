@@ -1,7 +1,15 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import ReactDOM from 'react-dom/client';
-import { getSettings, getStats, patchStats, getMessageLogs, type MessageLogEntry } from '../shared/storage';
+import {
+  getMessageLogs,
+  getSettings,
+  getStats,
+  patchStats,
+  saveSettings,
+  type MessageLogEntry,
+} from '../shared/storage';
 import type { AppSettings, PopupStats } from '../shared/types';
+import { getDirectSendConfigError } from '../shared/ai-config';
 
 const BRAND = {
   yellow: '#FFE512',
@@ -28,10 +36,14 @@ function SidePanel(): JSX.Element {
     setStats({ running: s.running, processedMessages: s.processedMessages, todayOrders: s.todayOrders });
     setSettings(cfg);
     setLoading(false);
+    // 后台因登录失效而停止时，自动显示登录提示
+    if (s.stoppedByLogout && !s.running) {
+      setLoginWarning(true);
+    }
   }, []);
 
   useEffect(() => {
-    loadData();
+    void loadData();
     const handler = () => { void loadData(); };
     chrome.storage.onChanged.addListener(handler);
     return () => chrome.storage.onChanged.removeListener(handler);
@@ -39,7 +51,8 @@ function SidePanel(): JSX.Element {
 
   async function checkGoofishLogin(): Promise<boolean> {
     try {
-      const resp = await chrome.runtime.sendMessage({ type: 'CHECK_LOGIN' }) as { loggedIn?: boolean } | undefined;
+      const resp = await chrome.runtime.sendMessage({ type: 'CHECK_LOGIN' }) as { loggedIn?: boolean; reason?: string } | undefined;
+      console.info('[SidePanel] 登录检查结果:', resp);
       return resp?.loggedIn === true;
     } catch (err) {
       console.error('[SidePanel] 登录检查失败:', err);
@@ -50,6 +63,32 @@ function SidePanel(): JSX.Element {
   async function toggleRunning(): Promise<void> {
     const newRunning = !stats.running;
     if (newRunning) {
+      const currentSettings = settings ?? await getSettings();
+      if (!currentSettings.ai.directSendAuthorized) {
+        const configError = getDirectSendConfigError(currentSettings.ai);
+        if (configError) {
+          window.alert(`${configError}\n请先到设置页完善 AI 配置后再开启自动直发授权。`);
+          return;
+        }
+
+        const confirmed = window.confirm(
+          '启动运行监控需要开启 AI 自动直发授权。启用后，系统会在你已配置 AI 服务的前提下自动读取买家消息并直接发送回复。是否现在开启？',
+        );
+        if (!confirmed) return;
+
+        const nextSettings = {
+          ...currentSettings,
+          ai: {
+            ...currentSettings.ai,
+            directSendAuthorized: true,
+            autoReplyEnabled: true,
+            reviewModeEnabled: false,
+          },
+        };
+        await saveSettings(nextSettings);
+        setSettings(nextSettings);
+      }
+
       const loggedIn = await checkGoofishLogin();
       if (!loggedIn) {
         setLoginWarning(true);
@@ -58,13 +97,14 @@ function SidePanel(): JSX.Element {
     }
 
     setLoginWarning(false);
-    const nextStats = await patchStats({ running: newRunning });
+    const nextStats = await patchStats({ running: newRunning, stoppedByLogout: false });
     setStats((prev) => ({ ...prev, running: nextStats.running }));
   }
 
   function goToLogin(): void {
     chrome.tabs.create({ url: 'https://www.goofish.com' });
     setLoginWarning(false);
+    void patchStats({ stoppedByLogout: false });
   }
 
   if (loading) {
@@ -75,7 +115,7 @@ function SidePanel(): JSX.Element {
     <div style={s.container}>
       <div style={s.header}>
         <div style={s.headerLeft}>
-          <span style={s.logo}>🐟</span>
+          <span style={s.logo}>鱼</span>
           <span style={s.headerTitle}>闲鱼智能客服</span>
         </div>
         <button style={s.headerBtn} onClick={() => chrome.runtime.openOptionsPage()} title="设置">
@@ -94,7 +134,7 @@ function SidePanel(): JSX.Element {
           </span>
         </div>
         <button
-          onClick={toggleRunning}
+          onClick={() => void toggleRunning()}
           style={{ ...s.statusToggle, background: stats.running ? 'rgba(0,0,0,0.1)' : BRAND.yellow }}
         >
           {stats.running ? '暂停' : '启动'}
@@ -103,10 +143,10 @@ function SidePanel(): JSX.Element {
 
       {loginWarning && (
         <div style={s.loginWarning}>
-          <div style={s.loginWarningText}>请先登录闲鱼账号，才能启动智能客服</div>
+          <div style={s.loginWarningText}>请先登录闲鱼账号，才能启动智能客服。</div>
           <div style={s.loginWarningBtns}>
             <button style={s.loginWarningBtn} onClick={goToLogin}>前往登录</button>
-            <button style={s.loginWarningCancel} onClick={() => setLoginWarning(false)}>取消</button>
+            <button style={s.loginWarningCancel} onClick={() => { setLoginWarning(false); void patchStats({ stoppedByLogout: false }); }}>取消</button>
           </div>
         </div>
       )}
@@ -147,11 +187,12 @@ function HomeTab({ stats, settings }: { stats: PopupStats; settings: AppSettings
 
       <div style={s.card}>
         <div style={s.cardTitle}>功能状态</div>
-        <FeatureRow icon="🤖" label="AI 自动直发" enabled={stats.running && Boolean(settings?.ai.directSendAuthorized)} />
-        <FeatureRow icon="🔔" label="下单桌面通知" enabled={settings?.notification.browserEnabled ?? false} />
-        <FeatureRow icon="💬" label="下单钉钉通知" enabled={settings?.notification.dingtalkEnabled ?? false} />
-        <FeatureRow icon="📨" label="下单飞书通知" enabled={settings?.notification.feishuEnabled ?? false} />
-        <FeatureRow icon="✈️" label="下单 Telegram 通知" enabled={settings?.notification.telegramEnabled ?? false} />
+        <FeatureRow icon="AI" label="自动直发授权" enabled={Boolean(settings?.ai.directSendAuthorized)} />
+        <FeatureRow icon="RUN" label="运行监控" enabled={stats.running} />
+        <FeatureRow icon="桌面" label="浏览器通知" enabled={settings?.notification.browserEnabled ?? false} />
+        <FeatureRow icon="钉钉" label="钉钉通知" enabled={settings?.notification.dingtalkEnabled ?? false} />
+        <FeatureRow icon="飞书" label="飞书通知" enabled={settings?.notification.feishuEnabled ?? false} />
+        <FeatureRow icon="TG" label="Telegram 通知" enabled={settings?.notification.telegramEnabled ?? false} />
       </div>
 
       <div style={s.card}>
@@ -167,6 +208,7 @@ function HomeTab({ stats, settings }: { stats: PopupStats; settings: AppSettings
 
 function MessagesTab(): JSX.Element {
   const [logs, setLogs] = useState<MessageLogEntry[]>([]);
+  const [sendingId, setSendingId] = useState<string | null>(null);
 
   useEffect(() => {
     getMessageLogs().then(setLogs);
@@ -175,14 +217,33 @@ function MessagesTab(): JSX.Element {
     return () => chrome.storage.onChanged.removeListener(handler);
   }, []);
 
+  async function releaseReply(logId: string): Promise<void> {
+    try {
+      setSendingId(logId);
+      const result = await chrome.runtime.sendMessage({
+        type: 'RELEASE_REPLY',
+        payload: { logId },
+      }) as { success?: boolean; error?: string } | undefined;
+
+      if (!result?.success) {
+        window.alert(`放行发送失败：${result?.error ?? 'unknown_error'}`);
+      }
+    } catch (err) {
+      console.error('[SidePanel] 放行发送失败:', err);
+      window.alert(`放行发送失败：${String(err)}`);
+    } finally {
+      setSendingId(null);
+    }
+  }
+
   if (logs.length === 0) {
     return (
       <div style={s.card}>
         <div style={s.cardTitle}>最近消息</div>
         <div style={s.emptyState}>
-          <div style={{ fontSize: '32px', marginBottom: '8px' }}>💬</div>
+          <div style={{ fontSize: '32px', marginBottom: '8px' }}>消息</div>
           <div style={{ color: BRAND.textMuted, fontSize: '13px' }}>
-            消息将在收到买家咨询后显示
+            收到买家咨询后会显示在这里
           </div>
         </div>
       </div>
@@ -209,14 +270,38 @@ function MessagesTab(): JSX.Element {
           )}
           <div style={s.msgFooter}>
             <span style={s.msgIntent}>
-              {log.intent === 'price' ? '砍价' : log.intent === 'tech' ? '咨询' : log.intent === 'no_reply' ? '无需回复' : '通用'}
-              {log.sent ? '' : ' (未发送)'}
+              {formatIntent(log.intent)}
+              {log.sent ? '' : '（未发送）'}
             </span>
+            {!log.sent && (
+              <button
+                style={s.releaseBtn}
+                onClick={() => void releaseReply(log.id)}
+                disabled={sendingId === log.id}
+              >
+                {sendingId === log.id ? '发送中...' : '放行'}
+              </button>
+            )}
           </div>
         </div>
       ))}
     </div>
   );
+}
+
+function formatIntent(intent: string): string {
+  switch (intent) {
+    case 'awaiting_consent':
+      return '待放行';
+    case 'price':
+      return '砍价';
+    case 'tech':
+      return '咨询';
+    case 'no_reply':
+      return '无需回复';
+    default:
+      return '通用';
+  }
 }
 
 function FeatureRow({ icon, label, enabled }: { icon: string; label: string; enabled: boolean }): JSX.Element {
@@ -267,7 +352,7 @@ const s: Record<string, React.CSSProperties> = {
     alignItems: 'center',
     gap: '8px',
   },
-  logo: { fontSize: '22px' },
+  logo: { fontSize: '22px', fontWeight: 700 },
   headerTitle: {
     fontSize: '16px',
     fontWeight: 700,
@@ -485,9 +570,10 @@ const s: Record<string, React.CSSProperties> = {
   },
   msgFooter: {
     display: 'flex',
-    justifyContent: 'flex-start',
+    justifyContent: 'space-between',
     alignItems: 'center',
     marginTop: '6px',
+    gap: '8px',
   },
   msgIntent: {
     fontSize: '11px',
@@ -496,6 +582,16 @@ const s: Record<string, React.CSSProperties> = {
     padding: '2px 8px',
     borderRadius: '8px',
     fontWeight: 500,
+  },
+  releaseBtn: {
+    border: 'none',
+    borderRadius: '8px',
+    padding: '5px 10px',
+    background: BRAND.yellow,
+    color: BRAND.text,
+    fontSize: '12px',
+    fontWeight: 600,
+    cursor: 'pointer',
   },
 };
 

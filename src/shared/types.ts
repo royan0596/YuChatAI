@@ -139,6 +139,9 @@ export type RuntimeMessage =
       type: 'WS_STATUS';
     }
   | {
+      type: 'MTOP_BRIDGE_STATUS';
+    }
+  | {
       type: 'CHECK_LOGIN';
     }
   | {
@@ -147,6 +150,10 @@ export type RuntimeMessage =
     }
   | {
       type: 'FETCH_MY_PRODUCTS';
+    }
+  | {
+      type: 'RELEASE_REPLY';
+      payload: { logId: string };
     };
 
 export interface PopupStats {

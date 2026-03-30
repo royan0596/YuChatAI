@@ -55,6 +55,13 @@ const pendingWsSendRequests = new Map<
     timer: number;
   }
 >();
+const pendingBridgeStatusRequests = new Map<
+  string,
+  {
+    resolve: (value: { ready: boolean }) => void;
+    timer: number;
+  }
+>();
 
 function markContentInstance(): void {
   document.documentElement?.setAttribute(CONTENT_INSTANCE_ATTR, CONTENT_INSTANCE_ID);
@@ -141,6 +148,24 @@ function checkWsStatus(): Promise<{ connected: boolean }> {
   });
 }
 
+function checkMtopBridgeStatus(): Promise<{ ready: boolean }> {
+  return new Promise((resolve) => {
+    const requestId = buildRequestId();
+    const timer = window.setTimeout(() => {
+      pendingBridgeStatusRequests.delete(requestId);
+      resolve({ ready: false });
+    }, 2_000);
+
+    pendingBridgeStatusRequests.set(requestId, { resolve, timer });
+
+    window.postMessage({
+      source: PAGE_MESSAGE_SOURCE,
+      type: 'MTOP_BRIDGE_STATUS',
+      payload: { requestId },
+    }, '*');
+  });
+}
+
 // 监听来自注入脚本的 postMessage（WS 拦截通道 + MTOP 桥接通道）
 function setupMessageListener(): void {
   window.addEventListener(
@@ -159,6 +184,17 @@ function setupMessageListener(): void {
           window.clearTimeout(pending.timer);
           pendingWsStatusRequests.delete(requestId);
           pending.resolve({ connected });
+        }
+        return;
+      }
+
+      if (type === 'MTOP_BRIDGE_STATUS_RESPONSE') {
+        const { requestId, ready } = payload as { requestId: string; ready: boolean };
+        const pending = pendingBridgeStatusRequests.get(requestId);
+        if (pending) {
+          window.clearTimeout(pending.timer);
+          pendingBridgeStatusRequests.delete(requestId);
+          pending.resolve({ ready });
         }
         return;
       }
@@ -245,6 +281,11 @@ function setupBackgroundListener(): void {
       return true;
     }
 
+    if (message.type === 'MTOP_BRIDGE_STATUS') {
+      checkMtopBridgeStatus().then((result) => sendResponse(result));
+      return true;
+    }
+
     if (message.type === 'SEND_REPLY') {
       const { conversationId, content, buyerUserId, participants } = message.payload;
       console.info('[Content] 收到 SEND_REPLY，通过 WS 发送:', conversationId, content.slice(0, 50));
@@ -279,8 +320,8 @@ function setupBackgroundListener(): void {
     }
 
     if (message.type === 'PING') {
-      sendResponse({ pong: true });
-      return false;
+      checkMtopBridgeStatus().then((bridge) => sendResponse({ pong: true, bridgeReady: bridge.ready }));
+      return true;
     }
 
     return false;

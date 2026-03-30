@@ -117,7 +117,21 @@
   // ── 监听来自 Content Script 的 mtop 请求 ────────────────────────────
   window.addEventListener('message', async (event) => {
     if (event.source !== window) return;
-    if (event.data?.source !== SOURCE || event.data?.type !== 'MTOP_REQUEST') return;
+    if (event.data?.source !== SOURCE) return;
+
+    if (event.data?.type === 'MTOP_BRIDGE_STATUS') {
+      window.postMessage({
+        source: SOURCE,
+        type: 'MTOP_BRIDGE_STATUS_RESPONSE',
+        payload: {
+          requestId: event.data?.payload?.requestId,
+          ready: true,
+        },
+      }, '*');
+      return;
+    }
+
+    if (event.data?.type !== 'MTOP_REQUEST') return;
 
     const { requestId, api, version, data } = event.data.payload as {
       requestId: string;

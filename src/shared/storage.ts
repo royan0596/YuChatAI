@@ -7,10 +7,12 @@ export interface StoredStats {
   running: boolean;
   processedMessages: number;
   todayOrders: number;
+  /** 后台检测到登录失效而自动停止时置为 true，前端据此显示登录提示 */
+  stoppedByLogout?: boolean;
 }
 
 export const DEFAULT_STATS: StoredStats = {
-  running: true,
+  running: false,
   processedMessages: 0,
   todayOrders: 0,
 };
@@ -78,7 +80,6 @@ export async function patchStats(partial: Partial<StoredStats>): Promise<StoredS
   return next;
 }
 
-// ── 商品知识库 ──────────────────────────────────────────────────────
 const PRODUCT_KNOWLEDGE_KEY = 'xianyu-product-knowledge';
 
 export async function getProductKnowledge(): Promise<ProductKnowledgeItem[]> {
@@ -90,9 +91,8 @@ export async function saveProductKnowledge(items: ProductKnowledgeItem[]): Promi
   await chrome.storage.local.set({ [PRODUCT_KNOWLEDGE_KEY]: items });
 }
 
-// ── 消息日志 ──────────────────────────────────────────────────────
 const MSG_LOG_KEY = 'xianyu-msg-log';
-const MAX_LOG_SIZE = 20; // 侧边栏默认只保留并展示最近 20 条
+const MAX_LOG_SIZE = 20;
 
 export interface MessageLogEntry {
   id: string;
@@ -103,6 +103,11 @@ export interface MessageLogEntry {
   timestamp: number;
   conversationId: string;
   sent: boolean;
+  buyerUserId?: string;
+  participants?: string[];
+  sendVia?: string;
+  usedConversationId?: string;
+  sendDetail?: string;
 }
 
 export async function getMessageLogs(): Promise<MessageLogEntry[]> {
@@ -112,8 +117,25 @@ export async function getMessageLogs(): Promise<MessageLogEntry[]> {
 
 export async function appendMessageLog(entry: MessageLogEntry): Promise<void> {
   const logs = await getMessageLogs();
-  logs.push(entry);
-  // 只保留最近 N 条
-  const trimmed = logs.slice(-MAX_LOG_SIZE);
-  await chrome.storage.local.set({ [MSG_LOG_KEY]: trimmed });
+  const existingIndex = logs.findIndex((log) => log.id === entry.id);
+  if (existingIndex >= 0) {
+    logs[existingIndex] = entry;
+  } else {
+    logs.push(entry);
+  }
+  await chrome.storage.local.set({ [MSG_LOG_KEY]: logs.slice(-MAX_LOG_SIZE) });
+}
+
+export async function updateMessageLog(id: string, patch: Partial<MessageLogEntry>): Promise<MessageLogEntry | null> {
+  const logs = await getMessageLogs();
+  const index = logs.findIndex((log) => log.id === id);
+  if (index < 0) return null;
+
+  const nextEntry: MessageLogEntry = {
+    ...logs[index],
+    ...patch,
+  };
+  logs[index] = nextEntry;
+  await chrome.storage.local.set({ [MSG_LOG_KEY]: logs.slice(-MAX_LOG_SIZE) });
+  return nextEntry;
 }

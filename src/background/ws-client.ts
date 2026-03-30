@@ -5,27 +5,34 @@ import { findAnyGoofishTab } from './im-tab-manager';
 const WS_URL = 'wss://wss-goofish.dingtalk.com/';
 const BRIDGE_URL = 'https://www.goofish.com/';
 const ACCESS_TOKEN_APP_KEY = '444e9908a51d1cb236a27862abc769c9';
+const MTOP_APP_KEY = '34839810';
 const DINGTALK_UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36 DingTalk(2.1.5) OS(Windows/10) Browser(Chrome/133.0.0.0) DingWeb/2.1.5 IMPaaS DingWeb/2.1.5';
 const HEARTBEAT_INTERVAL = 15_000;
 const BRIDGE_WAIT_TIMEOUT = 15_000;
 const CONNECT_TIMEOUT = 15_000;
 const SEND_TIMEOUT = 10_000;
+const MTOP_FETCH_TIMEOUT = 12_000;
 
 type JsonRecord = Record<string, unknown>;
 type BackgroundWsMessageHandler = (msg: BuyerMessage) => void | Promise<void>;
 type PendingSendResult = { success: boolean; reason?: string; usedConversationId?: string };
 type SystemRequestType = 'register' | 'ackDiff' | 'heartbeat';
 
+const WS_CONSECUTIVE_FAIL_LIMIT = 3;
+
 let bridgeTabId: number | null = null;
 let activeWs: WebSocket | null = null;
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 let wsReadyPromise: Promise<boolean> | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let backgroundWsDesired = false;
 let currentDeviceId = '';
 let currentAccessToken = '';
 let currentUserId = '';
 let backgroundWsMessageHandler: BackgroundWsMessageHandler | null = null;
+let consecutiveWsConnectFailures = 0;
+let onWsAuthFailure: (() => void) | null = null;
 
 const conversationParticipants = new Map<string, string[]>();
 const conversationAliases = new Map<string, string[]>();
@@ -44,6 +51,59 @@ const pendingSendRequests = new Map<
 function buildMid(prefix = ''): string {
   const head = prefix ? `${prefix}-` : '';
   return `${head}${Math.floor(Math.random() * 999)}${Date.now()} 0`;
+}
+
+function md5(str: string): string {
+  function safeAdd(x: number, y: number) {
+    const l = (x & 0xffff) + (y & 0xffff);
+    return (((x >> 16) + (y >> 16) + (l >> 16)) << 16) | (l & 0xffff);
+  }
+  function rol(n: number, c: number) { return (n << c) | (n >>> (32 - c)); }
+  function cmn(q: number, a: number, b: number, x: number, s: number, t: number) {
+    return safeAdd(rol(safeAdd(safeAdd(a, q), safeAdd(x, t)), s), b);
+  }
+  function ff(a: number, b: number, c: number, d: number, x: number, s: number, t: number) { return cmn((b & c) | ((~b) & d), a, b, x, s, t); }
+  function gg(a: number, b: number, c: number, d: number, x: number, s: number, t: number) { return cmn((b & d) | (c & (~d)), a, b, x, s, t); }
+  function hh(a: number, b: number, c: number, d: number, x: number, s: number, t: number) { return cmn(b ^ c ^ d, a, b, x, s, t); }
+  function ii(a: number, b: number, c: number, d: number, x: number, s: number, t: number) { return cmn(c ^ (b | (~d)), a, b, x, s, t); }
+
+  const bytes: number[] = [];
+  for (let i = 0; i < str.length; i++) {
+    const code = str.charCodeAt(i);
+    if (code < 0x80) bytes.push(code);
+    else if (code < 0x800) bytes.push(0xc0 | (code >> 6), 0x80 | (code & 0x3f));
+    else bytes.push(0xe0 | (code >> 12), 0x80 | ((code >> 6) & 0x3f), 0x80 | (code & 0x3f));
+  }
+  const bitLength = bytes.length * 8;
+  bytes.push(0x80);
+  while (bytes.length % 64 !== 56) bytes.push(0);
+  bytes.push(bitLength & 0xff, (bitLength >> 8) & 0xff, (bitLength >> 16) & 0xff, (bitLength >>> 24) & 0xff, 0, 0, 0, 0);
+
+  let a = 1732584193, b = -271733879, c = -1732584194, d = 271733878;
+  for (let off = 0; off < bytes.length; off += 64) {
+    const m: number[] = [];
+    for (let j = 0; j < 16; j++) m[j] = bytes[off + j * 4] | (bytes[off + j * 4 + 1] << 8) | (bytes[off + j * 4 + 2] << 16) | (bytes[off + j * 4 + 3] << 24);
+    const oa = a, ob = b, oc = c, od = d;
+    a = ff(a, b, c, d, m[0], 7, -680876936); d = ff(d, a, b, c, m[1], 12, -389564586); c = ff(c, d, a, b, m[2], 17, 606105819); b = ff(b, c, d, a, m[3], 22, -1044525330);
+    a = ff(a, b, c, d, m[4], 7, -176418897); d = ff(d, a, b, c, m[5], 12, 1200080426); c = ff(c, d, a, b, m[6], 17, -1473231341); b = ff(b, c, d, a, m[7], 22, -45705983);
+    a = ff(a, b, c, d, m[8], 7, 1770035416); d = ff(d, a, b, c, m[9], 12, -1958414417); c = ff(c, d, a, b, m[10], 17, -42063); b = ff(b, c, d, a, m[11], 22, -1990404162);
+    a = ff(a, b, c, d, m[12], 7, 1804603682); d = ff(d, a, b, c, m[13], 12, -40341101); c = ff(c, d, a, b, m[14], 17, -1502002290); b = ff(b, c, d, a, m[15], 22, 1236535329);
+    a = gg(a, b, c, d, m[1], 5, -165796510); d = gg(d, a, b, c, m[6], 9, -1069501632); c = gg(c, d, a, b, m[11], 14, 643717713); b = gg(b, c, d, a, m[0], 20, -373897302);
+    a = gg(a, b, c, d, m[5], 5, -701558691); d = gg(d, a, b, c, m[10], 9, 38016083); c = gg(c, d, a, b, m[15], 14, -660478335); b = gg(b, c, d, a, m[4], 20, -405537848);
+    a = gg(a, b, c, d, m[9], 5, 568446438); d = gg(d, a, b, c, m[14], 9, -1019803690); c = gg(c, d, a, b, m[3], 14, -187363961); b = gg(b, c, d, a, m[8], 20, 1163531501);
+    a = gg(a, b, c, d, m[13], 5, -1444681467); d = gg(d, a, b, c, m[2], 9, -51403784); c = gg(c, d, a, b, m[7], 14, 1735328473); b = gg(b, c, d, a, m[12], 20, -1926607734);
+    a = hh(a, b, c, d, m[5], 4, -378558); d = hh(d, a, b, c, m[8], 11, -2022574463); c = hh(c, d, a, b, m[11], 16, 1839030562); b = hh(b, c, d, a, m[14], 23, -35309556);
+    a = hh(a, b, c, d, m[1], 4, -1530992060); d = hh(d, a, b, c, m[4], 11, 1272893353); c = hh(c, d, a, b, m[7], 16, -155497632); b = hh(b, c, d, a, m[10], 23, -1094730640);
+    a = hh(a, b, c, d, m[13], 4, 681279174); d = hh(d, a, b, c, m[0], 11, -358537222); c = hh(c, d, a, b, m[3], 16, -722521979); b = hh(b, c, d, a, m[6], 23, 76029189);
+    a = hh(a, b, c, d, m[9], 4, -640364487); d = hh(d, a, b, c, m[12], 11, -421815835); c = hh(c, d, a, b, m[15], 16, 530742520); b = hh(b, c, d, a, m[2], 23, -995338651);
+    a = ii(a, b, c, d, m[0], 6, -198630844); d = ii(d, a, b, c, m[7], 10, 1126891415); c = ii(c, d, a, b, m[14], 15, -1416354905); b = ii(b, c, d, a, m[5], 21, -57434055);
+    a = ii(a, b, c, d, m[12], 6, 1700485571); d = ii(d, a, b, c, m[3], 10, -1894986606); c = ii(c, d, a, b, m[10], 15, -1051523); b = ii(b, c, d, a, m[1], 21, -2054922799);
+    a = ii(a, b, c, d, m[8], 6, 1873313359); d = ii(d, a, b, c, m[15], 10, -30611744); c = ii(c, d, a, b, m[6], 15, -1560198380); b = ii(b, c, d, a, m[13], 21, 1309151649);
+    a = ii(a, b, c, d, m[4], 6, -145523070); d = ii(d, a, b, c, m[11], 10, -1120210379); c = ii(c, d, a, b, m[2], 15, 718787259); b = ii(b, c, d, a, m[9], 21, -343485551);
+    a = safeAdd(a, oa); b = safeAdd(b, ob); c = safeAdd(c, oc); d = safeAdd(d, od);
+  }
+  const hex = (n: number) => { let s = ''; for (let i = 0; i < 4; i++) s += ((n >>> (i * 8)) & 0xff).toString(16).padStart(2, '0'); return s; };
+  return hex(a) + hex(b) + hex(c) + hex(d);
 }
 
 function generateDeviceId(uid: string): string {
@@ -164,11 +224,29 @@ function startHeartbeat(ws: WebSocket): void {
 }
 
 function scheduleReconnect(): void {
+  if (!backgroundWsDesired) return;
   if (reconnectTimer) return;
   reconnectTimer = setTimeout(() => {
     reconnectTimer = null;
+    if (!backgroundWsDesired) return;
     void ensureBackgroundWs();
   }, 5_000);
+}
+
+function clearReconnectTimer(): void {
+  if (!reconnectTimer) return;
+  clearTimeout(reconnectTimer);
+  reconnectTimer = null;
+}
+
+function resetBackgroundWsState(): void {
+  stopHeartbeat();
+  clearReconnectTimer();
+  pendingSystemRequests.clear();
+  currentAccessToken = '';
+  for (const [mid] of pendingSendRequests) {
+    settlePendingSend(mid, false, 'WebSocket closed');
+  }
 }
 
 function readTextCandidate(value: unknown): string {
@@ -349,26 +427,44 @@ async function ensureContentScript(tabId: number): Promise<boolean> {
   }
 }
 
-async function ensureBridgeTab(): Promise<number | null> {
+async function isMtopBridgeReady(tabId: number): Promise<boolean> {
+  try {
+    const response = await chrome.tabs.sendMessage(tabId, { type: 'MTOP_BRIDGE_STATUS' }) as
+      { ready?: boolean } | undefined;
+    return response?.ready === true;
+  } catch (err) {
+    console.warn('[BackgroundWs] 检查 mtop bridge 状态失败:', tabId, err);
+    return false;
+  }
+}
+
+export async function ensureBridgeTab(): Promise<number | null> {
   if (bridgeTabId) {
     try {
       const tab = await chrome.tabs.get(bridgeTabId);
       if (tab.id && tab.status === 'complete') {
         const ready = await ensureContentScript(tab.id);
-        if (ready) return tab.id;
+        if (ready && await isMtopBridgeReady(tab.id)) return tab.id;
       }
     } catch {
       bridgeTabId = null;
     }
+    bridgeTabId = null;
   }
 
   const existing = await findAnyGoofishTab();
   if (existing) {
-    bridgeTabId = existing;
-    return existing;
+    if (await isMtopBridgeReady(existing)) {
+      bridgeTabId = existing;
+      return existing;
+    }
+    console.warn('[BackgroundWs] 发现已有闲鱼标签页，但 mtop bridge 不可用，改为创建专用桥接页:', existing);
   }
 
-  try {
+  console.info('[BackgroundWs] 当前没有可复用的闲鱼标签页，跳过创建桥接页');
+  return null;
+
+  /* try {
     const tab = await chrome.tabs.create({
       url: BRIDGE_URL,
       active: false,
@@ -385,18 +481,148 @@ async function ensureBridgeTab(): Promise<number | null> {
     const ready = await ensureContentScript(tab.id);
     if (!ready) return null;
 
+    // 等待 content-injected.js (mtop-bridge) 在 MAIN 世界加载完成
+    await new Promise((r) => setTimeout(r, 2000));
+
+    const bridgeReady = await isMtopBridgeReady(tab.id);
+    if (!bridgeReady) {
+      console.error('[BackgroundWs] 新建桥接页后 mtop bridge 仍未就绪:', tab.id);
+      return null;
+    }
+
     bridgeTabId = tab.id;
     return tab.id;
   } catch (err) {
     console.error('[BackgroundWs] 创建桥接页失败:', err);
     return null;
-  }
+  } */
 }
 
 async function getCurrentUserId(): Promise<string> {
   const cookie = await chrome.cookies.get({ url: 'https://www.goofish.com', name: 'unb' });
   currentUserId = cookie?.value ?? '';
   return currentUserId;
+}
+
+async function getMtopToken(): Promise<string> {
+  const cookie = await chrome.cookies.get({ url: 'https://www.goofish.com', name: '_m_h5_tk' });
+  const token = String(cookie?.value ?? '').split('_')[0];
+  return token;
+}
+
+function getMtopReferrer(api: string): string {
+  return api.includes('idlemessage.') ? 'https://www.goofish.com/im' : 'https://www.goofish.com/';
+}
+
+export async function callBackgroundMtopApi(
+  api: string,
+  version: string,
+  data: Record<string, unknown>,
+): Promise<JsonRecord | null> {
+  const token = await getMtopToken();
+  if (!token) {
+    console.warn('[BackgroundWs] 缺少 _m_h5_tk，无法直接发起 mtop 请求:', api);
+    return null;
+  }
+
+  const timestamp = String(Date.now());
+  const dataStr = JSON.stringify(data);
+  const sign = md5(`${token}&${timestamp}&${MTOP_APP_KEY}&${dataStr}`);
+  const params = new URLSearchParams({
+    jsv: '2.7.2',
+    appKey: MTOP_APP_KEY,
+    t: timestamp,
+    sign,
+    v: version,
+    type: 'originaljson',
+    accountSite: 'xianyu',
+    dataType: 'json',
+    timeout: '20000',
+    api,
+    valueType: 'string',
+    sessionOption: 'AutoLoginOnly',
+  });
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), MTOP_FETCH_TIMEOUT);
+  const url = `https://h5api.m.goofish.com/h5/${api}/${version}/?${params.toString()}`;
+
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      credentials: 'include',
+      body: new URLSearchParams({ data: dataStr }).toString(),
+      referrer: getMtopReferrer(api),
+      referrerPolicy: 'strict-origin-when-cross-origin',
+      signal: controller.signal,
+    });
+    const text = await response.text();
+    return JSON.parse(text) as JsonRecord;
+  } catch (err) {
+    console.error('[BackgroundWs] 后台 mtop 请求异常:', api, err);
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+export async function probeBackgroundLoginState(): Promise<{ loggedIn: boolean; reason: string }> {
+  const uid = await getCurrentUserId();
+  const mtopToken = await getMtopToken();
+  if (!uid || !mtopToken) {
+    return { loggedIn: false, reason: 'no_cookies' };
+  }
+
+  if (isBackgroundWsConnected()) {
+    return { loggedIn: true, reason: 'ws_connected' };
+  }
+
+  const deviceId = generateDeviceId(uid);
+  const response = await callBackgroundMtopApi('mtop.taobao.idlemessage.pc.login.token', '1.0', {
+    appKey: ACCESS_TOKEN_APP_KEY,
+    deviceId,
+  });
+
+  if (!response) {
+    return { loggedIn: false, reason: 'token_request_failed' };
+  }
+  if (isMtopTokenError(response)) {
+    return { loggedIn: false, reason: 'token_invalid' };
+  }
+
+  const accessToken = (response['data'] as JsonRecord | undefined)?.['accessToken'];
+  if (typeof accessToken !== 'string' || !accessToken) {
+    return { loggedIn: false, reason: 'token_missing' };
+  }
+
+  currentDeviceId = deviceId;
+  currentAccessToken = accessToken;
+  return { loggedIn: true, reason: 'token_ok' };
+}
+
+/** MTOP ret 中表示 token/session 失效的关键词 */
+const MTOP_TOKEN_ERROR_PATTERNS = [
+  'FAIL_SYS_TOKEN_EXOIRED',  // 阿里拼写就是 EXOIRED
+  'FAIL_SYS_TOKEN_EXPIRED',
+  'FAIL_SYS_SESSION_EXPIRED',
+  'FAIL_SYS_ILLEGAL_ACCESS',
+  'FAIL_SYS_USER_VALIDATE',
+  'FAIL_BIZ_TOKEN_EXPIRE',
+  'FAIL_SYS_TOKEN_EMPTY',
+  'FAIL_SYS_NOT_LOGIN',
+];
+
+function isMtopTokenError(data: JsonRecord | null | undefined): boolean {
+  if (!data) return false;
+  const ret = data['ret'] as string[] | string | undefined;
+  if (!ret) return false;
+  const retArr = Array.isArray(ret) ? ret : [String(ret)];
+  return retArr.some((r) =>
+    MTOP_TOKEN_ERROR_PATTERNS.some((p) => String(r).toUpperCase().includes(p)),
+  );
 }
 
 async function requestAccessToken(): Promise<string | null> {
@@ -419,6 +645,12 @@ async function requestAccessToken(): Promise<string | null> {
       },
     }) as { success?: boolean; data?: JsonRecord } | undefined;
 
+    // 检查 MTOP ret 是否为 token/session 错误（明确的登录失效信号）
+    if (isMtopTokenError(resp?.data)) {
+      console.warn('[BackgroundWs] MTOP 返回 token/session 错误:', resp?.data?.['ret']);
+      return null;
+    }
+
     const token = (resp?.data?.['data'] as JsonRecord | undefined)?.['accessToken'];
     if (!resp?.success || typeof token !== 'string' || !token) {
       console.warn('[BackgroundWs] accessToken 获取失败:', resp);
@@ -429,6 +661,37 @@ async function requestAccessToken(): Promise<string | null> {
     return token;
   } catch (err) {
     console.error('[BackgroundWs] accessToken 请求异常:', err);
+    return null;
+  }
+}
+
+async function requestAccessTokenDirect(): Promise<string | null> {
+  const uid = await getCurrentUserId();
+  if (!uid) return null;
+
+  currentDeviceId = generateDeviceId(uid);
+
+  try {
+    const resp = await callBackgroundMtopApi('mtop.taobao.idlemessage.pc.login.token', '1.0', {
+      appKey: ACCESS_TOKEN_APP_KEY,
+      deviceId: currentDeviceId,
+    });
+
+    if (isMtopTokenError(resp)) {
+      console.warn('[BackgroundWs] MTOP 返回 token/session 错误:', resp?.['ret']);
+      return null;
+    }
+
+    const token = (resp?.['data'] as JsonRecord | undefined)?.['accessToken'];
+    if (typeof token !== 'string' || !token) {
+      console.warn('[BackgroundWs] accessToken 获取失败:', resp);
+      return null;
+    }
+
+    currentAccessToken = token;
+    return token;
+  } catch (err) {
+    console.error('[BackgroundWs] 后台 accessToken 请求异常:', err);
     return null;
   }
 }
@@ -754,8 +1017,18 @@ function parseAndDispatchIncoming(data: JsonRecord, ws: WebSocket): void {
 }
 
 async function connectBackgroundWs(): Promise<boolean> {
-  const accessToken = currentAccessToken || await requestAccessToken();
-  if (!accessToken) return false;
+  const accessToken = currentAccessToken || await requestAccessTokenDirect();
+  if (!accessToken) {
+    consecutiveWsConnectFailures++;
+    console.warn(
+      `[BackgroundWs] accessToken 获取失败 (连续 ${consecutiveWsConnectFailures}/${WS_CONSECUTIVE_FAIL_LIMIT})`,
+    );
+    if (consecutiveWsConnectFailures >= WS_CONSECUTIVE_FAIL_LIMIT && onWsAuthFailure) {
+      console.error('[BackgroundWs] 连续多次无法获取 accessToken，触发登录失效回调');
+      onWsAuthFailure();
+    }
+    return false;
+  }
 
   return new Promise((resolve) => {
     const ws = new WebSocket(WS_URL);
@@ -796,6 +1069,7 @@ async function connectBackgroundWs(): Promise<boolean> {
             if (systemRequestType === 'register') {
               if (data['code'] === 200) {
                 clearTimeout(connectTimer);
+                consecutiveWsConnectFailures = 0; // 连接成功，重置失败计数
                 startHeartbeat(ws);
                 setTimeout(() => sendAckDiff(ws), 1_000);
                 console.info('[BackgroundWs] 注册成功，开始接收实时消息');
@@ -804,12 +1078,18 @@ async function connectBackgroundWs(): Promise<boolean> {
                   resolve(true);
                 }
               } else {
+                consecutiveWsConnectFailures++;
                 console.warn('[BackgroundWs] 注册失败:', {
                   mid,
                   code: data['code'],
                   body: data['body'],
+                  consecutiveFailures: consecutiveWsConnectFailures,
                 });
                 currentAccessToken = '';
+                if (consecutiveWsConnectFailures >= WS_CONSECUTIVE_FAIL_LIMIT && onWsAuthFailure) {
+                  console.error('[BackgroundWs] 连续多次注册失败，触发登录失效回调');
+                  onWsAuthFailure();
+                }
                 try { ws.close(); } catch { /* ignore */ }
                 if (!settled) {
                   settled = true;
@@ -868,6 +1148,7 @@ async function connectBackgroundWs(): Promise<boolean> {
 }
 
 export async function ensureBackgroundWs(): Promise<boolean> {
+  backgroundWsDesired = true;
   if (activeWs?.readyState === WebSocket.OPEN) return true;
   if (wsReadyPromise) return wsReadyPromise;
 
@@ -885,6 +1166,29 @@ export async function ensureBackgroundWs(): Promise<boolean> {
 
 export function isBackgroundWsConnected(): boolean {
   return activeWs?.readyState === WebSocket.OPEN;
+}
+
+/**
+ * 注册 WS 认证失败回调：连续多次无法获取 accessToken 或注册失败时触发
+ */
+export function setWsAuthFailureCallback(cb: (() => void) | null): void {
+  onWsAuthFailure = cb;
+}
+
+export function stopBackgroundWs(reason = 'stopped'): void {
+  backgroundWsDesired = false;
+  consecutiveWsConnectFailures = 0;
+  resetBackgroundWsState();
+
+  const ws = activeWs;
+  activeWs = null;
+  if (ws) {
+    try {
+      ws.close();
+    } catch {
+      console.warn('[BackgroundWs] 关闭连接失败:', reason);
+    }
+  }
 }
 
 export function setBackgroundWsMessageHandler(handler: BackgroundWsMessageHandler | null): void {

@@ -155,7 +155,10 @@ async function doEnsureImTab(needWs: boolean): Promise<number | null> {
 
   // 3. 没有可用的 /im 标签页，创建一个
   console.info('[ImTabManager] 自动打开 /im 标签页...');
-  let tab: chrome.tabs.Tab;
+  console.info('[ImTabManager] 当前没有可复用的 /im 标签页，跳过自动创建');
+  return null;
+
+  /* let tab: chrome.tabs.Tab;
   try {
     tab = await chrome.tabs.create({
       url: 'https://www.goofish.com/im',
@@ -194,7 +197,7 @@ async function doEnsureImTab(needWs: boolean): Promise<number | null> {
   }
 
   cachedImTabId = tabId;
-  return tabId;
+  return tabId; */
 }
 
 /**

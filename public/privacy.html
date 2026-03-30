@@ -3,115 +3,135 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>隐私政策 - 闲鱼智能客服助手</title>
+    <title>隐私政策 - YuChatAI 闲鱼智能客服助手</title>
     <style>
       * { box-sizing: border-box; margin: 0; padding: 0; }
       body {
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
-        background: #f9f9f9;
+        background: #f7f7f7;
         color: #333;
         line-height: 1.8;
         padding: 40px 20px;
       }
       .container {
-        max-width: 720px;
+        max-width: 780px;
         margin: 0 auto;
         background: #fff;
         border-radius: 12px;
         padding: 40px;
-        box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+        box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
       }
-      h1 { font-size: 24px; margin-bottom: 8px; }
-      .update-date { color: #999; font-size: 14px; margin-bottom: 32px; }
-      h2 { font-size: 18px; margin: 24px 0 12px; color: #1a1a1a; }
+      h1 { font-size: 26px; margin-bottom: 8px; }
+      .update-date { color: #888; font-size: 14px; margin-bottom: 28px; }
+      h2 { font-size: 18px; margin: 24px 0 12px; color: #111; }
       p, li { font-size: 15px; color: #444; margin-bottom: 8px; }
       ul { padding-left: 20px; margin-bottom: 16px; }
-      .highlight { background: #FFF7CC; padding: 12px 16px; border-radius: 8px; margin: 16px 0; }
+      .highlight {
+        background: #fff7cc;
+        border-radius: 8px;
+        padding: 14px 16px;
+        margin: 16px 0;
+      }
+      a { color: #0b57d0; word-break: break-all; }
+      code {
+        background: #f3f3f3;
+        border-radius: 4px;
+        padding: 1px 4px;
+      }
     </style>
   </head>
   <body>
     <div class="container">
       <h1>隐私政策</h1>
-      <p class="update-date">最后更新日期：2026年3月27日</p>
+      <p class="update-date">最后更新日期：2026 年 3 月 30 日</p>
 
-      <p>「闲鱼智能客服助手」（以下简称"本扩展"）尊重并保护用户的隐私。本隐私政策说明本扩展如何收集、使用和保护您的信息。</p>
+      <p>
+        YuChatAI 闲鱼智能客服助手用于帮助闲鱼卖家处理买家咨询、生成 AI 回复、发送订单通知，并在用户明确授权后自动直发回复。
+        本政策说明本扩展会处理哪些数据、如何使用这些数据，以及这些数据会发送到哪里。
+      </p>
 
-      <h2>1. 信息收集与使用</h2>
-      <p>本扩展在运行过程中会处理以下信息：</p>
+      <h2>1. 我们处理的数据</h2>
       <ul>
-        <li><strong>闲鱼聊天消息</strong>：读取买家发送的消息内容，用于生成 AI 回复。仅在用户明确授权自动直发后，系统才会自动向买家发送回复。消息仅在本地处理和临时存储，不会上传至本扩展开发者的服务器。</li>
-        <li><strong>商品信息</strong>：读取当前会话关联的商品标题，用于提供更准确的回复。</li>
-        <li><strong>用户配置</strong>：包括 AI 服务设置、通知设置、知识库内容等，存储在 Chrome 浏览器本地存储中（chrome.storage）。</li>
+        <li><strong>聊天消息内容：</strong>包括买家发送的消息文本、会话标识、必要的会话参与方信息，用于识别新消息、生成回复和发送回复。</li>
+        <li><strong>商品相关信息：</strong>包括当前会话关联的商品标题、价格及其他必要商品信息，用于提升回复准确度。</li>
+        <li><strong>登录相关信息：</strong>包括闲鱼登录状态相关的 Cookie 和接口鉴权信息，仅用于验证登录状态、请求闲鱼消息接口和建立消息连接。</li>
+        <li><strong>用户配置：</strong>包括 AI 提供商、API Key、Base URL、模型名、通知渠道配置、商品知识库和运行设置。</li>
+        <li><strong>本地运行记录：</strong>包括最近消息日志、发送结果和运行状态，用于在扩展界面中展示和排查问题。</li>
       </ul>
 
-      <h2>2. 第三方服务</h2>
-      <p>本扩展需要调用以下第三方 AI 服务来生成回复，您的消息内容会被发送至您所选择的 AI 服务商：</p>
+      <h2>2. 数据用途</h2>
       <ul>
-        <li>DeepSeek（https://api.deepseek.com）</li>
-        <li>OpenAI（https://api.openai.com）</li>
-        <li>阿里云通义千问（https://dashscope.aliyuncs.com）</li>
-        <li>或您自行配置的其他 AI 服务</li>
-      </ul>
-      <p>请注意，这些第三方服务有各自的隐私政策，建议您阅读相关条款。</p>
-
-      <h2>3. 通知服务</h2>
-      <p>如果您启用了订单通知功能，订单相关信息（商品名称、金额）会通过您配置的通知渠道发送：</p>
-      <ul>
-        <li>浏览器通知（本地，不涉及第三方）</li>
-        <li>钉钉机器人（您配置的 Webhook 地址）</li>
-        <li>飞书机器人（您配置的 Webhook 地址）</li>
-        <li>Telegram Bot（https://api.telegram.org）</li>
+        <li>监控闲鱼买家消息并提示卖家。</li>
+        <li>调用用户自行配置的 AI 服务生成回复建议。</li>
+        <li>在用户明确开启“AI 自动直发授权”后，自动发送 AI 回复。</li>
+        <li>发送浏览器、钉钉、飞书、Telegram 或短信通知。</li>
+        <li>验证闲鱼登录状态，避免扩展显示“运行中”但实际上已失效。</li>
       </ul>
 
-      <h2>4. 数据存储</h2>
+      <h2>3. 后台独立运行说明</h2>
+      <p>
+        本扩展支持在后台独立运行，不要求用户持续打开闲鱼聊天页。扩展会在后台直接使用闲鱼登录相关 Cookie 和接口鉴权信息访问闲鱼消息接口、获取登录 Token、建立消息连接并监控消息。
+      </p>
       <div class="highlight">
-        <strong>本扩展不设有独立服务器，不会将您的数据上传到本扩展开发者的任何服务器。</strong>
+        <strong>闲鱼页面的唯一必要用途是：</strong>用户手动登录闲鱼账号，以及在登录状态变化时让浏览器更新 Cookie / 登录态。扩展不会要求持续打开闲鱼聊天页才能运行。
+      </div>
+
+      <h2>4. 第三方服务</h2>
+      <p>当你配置并启用相应功能后，扩展可能会将必要数据发送到以下第三方服务：</p>
+      <ul>
+        <li><strong>AI 服务：</strong>买家消息内容和必要商品信息可能会发送到你自行配置的 AI 服务，用于生成回复。支持的默认服务包括：
+          <ul>
+            <li>OpenAI：<a href="https://api.openai.com" target="_blank" rel="noopener noreferrer">https://api.openai.com</a></li>
+            <li>DeepSeek：<a href="https://api.deepseek.com" target="_blank" rel="noopener noreferrer">https://api.deepseek.com</a></li>
+            <li>通义千问：<a href="https://dashscope.aliyuncs.com" target="_blank" rel="noopener noreferrer">https://dashscope.aliyuncs.com</a></li>
+          </ul>
+        </li>
+        <li><strong>通知服务：</strong>当你启用通知功能后，订单或运行提示信息会发送到你配置的浏览器通知、钉钉、飞书、Telegram 或短信服务。</li>
+      </ul>
+      <p>这些第三方服务有各自的隐私政策。你应自行评估并确认是否使用这些服务。</p>
+
+      <h2>5. 数据存储与传输</h2>
+      <div class="highlight">
+        <strong>本扩展不提供开发者自建云端服务，不会把你的数据上传到开发者控制的服务器。</strong>
       </div>
       <ul>
-        <li>所有配置数据存储在 Chrome 浏览器的本地存储中（chrome.storage.sync / chrome.storage.local）。</li>
-        <li>消息日志仅保存在本地，用于您在扩展界面中查看历史记录。</li>
-        <li>API Key 等敏感信息仅存储在浏览器本地，不会被传输至本扩展开发者。</li>
+        <li>扩展配置、消息日志和运行状态默认保存在浏览器本地存储中。</li>
+        <li>AI API Key 等敏感配置保存在本地，仅用于你自行配置的功能调用。</li>
+        <li>与 AI 服务和通知服务的通信通过你配置的远程接口完成，不会先中转到开发者服务器。</li>
       </ul>
 
-      <h2>5. Cookie 使用</h2>
-      <p>本扩展读取闲鱼网站的登录 Cookie（如 _m_h5_tk），仅用于：</p>
+      <h2>6. Cookie 与权限使用说明</h2>
       <ul>
-        <li>验证您的闲鱼登录状态</li>
-        <li>通过闲鱼官方 API 获取消息和发送回复</li>
+        <li><strong><code>cookies</code>：</strong>读取闲鱼登录相关 Cookie，用于登录校验、接口鉴权和消息连接。</li>
+        <li><strong><code>tabs</code>：</strong>在需要登录时打开闲鱼页面，或与闲鱼页面进行必要交互。</li>
+        <li><strong><code>scripting</code>：</strong>用于在闲鱼页面注入必要脚本，以兼容特定页面交互场景。</li>
+        <li><strong><code>storage</code>：</strong>保存本地配置、消息日志和运行状态。</li>
+        <li><strong><code>notifications</code>：</strong>发送浏览器通知。</li>
+        <li><strong><code>sidePanel</code>：</strong>展示扩展侧边栏界面。</li>
       </ul>
-      <p>本扩展不会将您的 Cookie 传输至任何第三方。</p>
 
-      <h2>6. 权限说明</h2>
+      <h2>7. 自动发送授权</h2>
       <ul>
-        <li><strong>storage</strong>：存储扩展配置和消息日志</li>
-        <li><strong>notifications</strong>：发送浏览器桌面通知</li>
-        <li><strong>tabs</strong>：与闲鱼页面通信，发送和接收消息</li>
-        <li><strong>cookies</strong>：检测闲鱼登录状态</li>
-        <li><strong>scripting</strong>：在闲鱼页面注入消息监听脚本</li>
-        <li><strong>sidePanel</strong>：提供侧边栏操作面板</li>
+        <li>“AI 自动直发授权”默认关闭。</li>
+        <li>只有在用户明确开启授权后，扩展才会自动向买家发送 AI 回复。</li>
+        <li>未开启授权时，扩展最多生成回复建议或保留待放行消息，不会自动代替用户发送。</li>
       </ul>
 
-      <h2>7. 数据安全</h2>
-      <p>本扩展采取以下措施保护您的数据安全：</p>
+      <h2>8. 数据安全</h2>
       <ul>
-        <li>所有与 AI 服务的通信均使用 HTTPS 加密传输</li>
-        <li>不在日志中记录完整的 API Key</li>
-        <li>仅在必要时访问闲鱼页面数据</li>
+        <li>与 AI 服务及通知服务的网络通信使用 HTTPS 或 WSS。</li>
+        <li>扩展不会把完整 API Key 输出到普通运行日志中。</li>
+        <li>扩展仅在实现核心功能所需的范围内访问闲鱼页面、登录信息和消息数据。</li>
       </ul>
 
-      <h2>8. 用户权利</h2>
-      <p>您可以随时：</p>
+      <h2>9. 用户权利</h2>
       <ul>
-        <li>在扩展设置页面查看和修改所有配置</li>
-        <li>通过"重置所有设置"清除所有本地数据</li>
-        <li>卸载扩展以删除所有相关数据</li>
+        <li>你可以随时修改或删除扩展配置。</li>
+        <li>你可以随时清除本地消息日志和本地保存的数据。</li>
+        <li>你可以通过停用或卸载扩展来停止数据处理。</li>
       </ul>
 
-      <h2>9. 政策更新</h2>
-      <p>本隐私政策可能会不时更新。更新后的政策将在本页面发布，并更新"最后更新日期"。</p>
-
-      <h2>10. 联系我们</h2>
-      <p>如果您对本隐私政策有任何疑问，请通过以下方式联系：</p>
+      <h2>10. 联系方式</h2>
       <ul>
         <li>GitHub：<a href="https://github.com/royan0596/YuChatAI" target="_blank" rel="noopener noreferrer">https://github.com/royan0596/YuChatAI</a></li>
         <li>Telegram：<a href="https://t.me/Global_Acc_Hub" target="_blank" rel="noopener noreferrer">@Global_Acc_Hub</a></li>

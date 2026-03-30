@@ -8,8 +8,9 @@ import {
   type SmsProvider,
   type ProductKnowledgeItem,
 } from '../shared/types';
+import { getDirectSendConfigError } from '../shared/ai-config';
 
-type NavKey = 'ai' | 'notify' | 'prompt' | 'stats' | 'advanced';
+type NavKey = 'ai' | 'notify' | 'prompt' | 'stats' | 'advanced' | 'contact';
 
 function Options(): JSX.Element {
   const [nav, setNav] = useState<NavKey>('ai');
@@ -42,18 +43,47 @@ function Options(): JSX.Element {
     { key: 'advanced', label: '⚙️ 高级设置' },
   ];
 
+  const navItemsWithContact = [
+    ...navItems,
+    { key: 'contact' as const, label: 'Telegram 联系' },
+  ];
+
+  function unusedHandleDirectSendAuthorizedChange1(enabled: boolean): void {
+    if (enabled) {
+      const configError = getDirectSendConfigError(settings.ai);
+      if (configError) {
+        window.alert(`${configError}\n请先完善 AI 配置后再开启自动直发授权。`);
+        return;
+      }
+    }
+
+    patchAI({ directSendAuthorized: enabled, autoReplyEnabled: enabled, reviewModeEnabled: false });
+  }
+
+  function unusedHandleDirectSendAuthorizedChange2(enabled: boolean): void {
+    if (enabled) {
+      const configError = getDirectSendConfigError(settings.ai);
+      if (configError) {
+        window.alert(`${configError}\n请先完善 AI 配置后再开启自动直发授权。`);
+        return;
+      }
+    }
+
+    patchAI({ directSendAuthorized: enabled, autoReplyEnabled: enabled, reviewModeEnabled: false });
+  }
+
   return (
     <div style={styles.page}>
       {/* 顶部标题栏 */}
       <div style={styles.topBar}>
         <span style={styles.topTitle}>🐟 闲鱼智能客服助手</span>
-        <span style={styles.version}>v1.0.0</span>
+        <span style={styles.version}>v1.0.1</span>
       </div>
 
       <div style={styles.body}>
         {/* 左侧导航 */}
         <nav style={styles.nav}>
-          {navItems.map((item) => (
+          {navItemsWithContact.map((item) => (
             <button
               key={item.key}
               style={{
@@ -80,9 +110,10 @@ function Options(): JSX.Element {
           )}
           {nav === 'stats' && <StatsPage />}
           {nav === 'advanced' && <AdvancedPage />}
+          {nav === 'contact' && <ContactPage />}
 
           {/* 保存按钮（统计和高级页不需要） */}
-          {nav !== 'stats' && nav !== 'advanced' && (
+          {nav !== 'stats' && nav !== 'advanced' && nav !== 'contact' && (
             <div style={styles.saveRow}>
               <button style={styles.saveBtn} onClick={handleSave}>
                 {saved ? '✅ 已保存' : '💾 保存配置'}
@@ -103,6 +134,18 @@ function AISettings({
   settings: AppSettings;
   patchAI: (p: Partial<AppSettings['ai']>) => void;
 }): JSX.Element {
+  function handleDirectSendAuthorizedChange(enabled: boolean): void {
+    if (enabled) {
+      const configError = getDirectSendConfigError(settings.ai);
+      if (configError) {
+        window.alert(`${configError}\n请先完善 AI 配置后再开启自动直发授权。`);
+        return;
+      }
+    }
+
+    patchAI({ directSendAuthorized: enabled, autoReplyEnabled: enabled, reviewModeEnabled: false });
+  }
+
   const providers: { value: AIProvider; label: string; baseUrl: string }[] = [
     { value: 'openai', label: 'OpenAI', baseUrl: 'https://api.openai.com' },
     { value: 'deepseek', label: 'DeepSeek', baseUrl: 'https://api.deepseek.com' },
@@ -191,7 +234,7 @@ function AISettings({
         <CheckItem
           label="我已知晓并同意启用 AI 自动直发"
           checked={settings.ai.directSendAuthorized}
-          onChange={(v) => patchAI({ directSendAuthorized: v, autoReplyEnabled: v, reviewModeEnabled: false })}
+          onChange={handleDirectSendAuthorizedChange}
         />
       </div>
 
@@ -664,6 +707,47 @@ function CheckItem({
 }
 
 /* ─── 样式 ─── */
+function ContactPage(): JSX.Element {
+  return (
+    <div>
+      <h2 style={styles.sectionH2}>联系与反馈</h2>
+      <div style={styles.card}>
+        <div style={styles.contactIntro}>
+          欢迎通过 Telegram 联系我提意见，或者加入群组交流反馈。
+        </div>
+
+        <div style={styles.contactBlock}>
+          <div style={styles.contactLabel}>Telegram 账号</div>
+          <a
+            href="https://t.me/Global_Acc_Hub"
+            target="_blank"
+            rel="noreferrer"
+            style={styles.contactLink}
+          >
+            @Global_Acc_Hub
+          </a>
+        </div>
+
+        <div style={styles.contactBlock}>
+          <div style={styles.contactLabel}>Telegram 群组</div>
+          <a
+            href="https://t.me/+O05zNZ3fUzQ5ZmY0"
+            target="_blank"
+            rel="noreferrer"
+            style={styles.contactLink}
+          >
+            加入意见反馈群
+          </a>
+        </div>
+
+        <div style={styles.hint}>
+          如果 Telegram 无法直接打开，可以复制链接到浏览器中访问。
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const styles: Record<string, React.CSSProperties> = {
   page: {
     minHeight: '100vh',
@@ -787,6 +871,31 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '12px',
     color: '#999',
     marginTop: '8px',
+  },
+  contactIntro: {
+    fontSize: '14px',
+    color: '#444',
+    lineHeight: 1.7,
+    marginBottom: '20px',
+  },
+  contactBlock: {
+    padding: '16px',
+    border: '1px solid #f0f0f0',
+    borderRadius: '10px',
+    background: '#fafafa',
+    marginBottom: '12px',
+  },
+  contactLabel: {
+    fontSize: '13px',
+    color: '#666',
+    marginBottom: '8px',
+  },
+  contactLink: {
+    color: '#0a66c2',
+    fontSize: '15px',
+    fontWeight: 600,
+    textDecoration: 'none',
+    wordBreak: 'break-all',
   },
   saveRow: {
     marginTop: '24px',

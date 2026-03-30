@@ -10,7 +10,7 @@
  *   1. HTTP API（主通道）：通过 reply-sender 直接调用闲鱼发送 API
  *   2. DOM 注入（回退）：通过 content script 注入到聊天输入框
  */
-import { getSettings, getStats, patchStats, appendMessageLog } from '../shared/storage';
+import { getSettings, getStats, patchStats, appendMessageLog, getMessageLogs, updateMessageLog } from '../shared/storage';
 import { STORAGE_KEYS } from '../shared/constants';
 import type { RuntimeMessage, BuyerMessage, OrderEvent } from '../shared/types';
 import { callAgentAI } from './ai-agents';
@@ -18,10 +18,13 @@ import { startPolling, stopPolling, isPolling } from './message-poller';
 import { sendReplyViaAPI } from './reply-sender';
 import {
   ensureBackgroundWs,
+  stopBackgroundWs,
+  isBackgroundWsConnected,
+  probeBackgroundLoginState,
   rememberConversationParticipants,
   setBackgroundWsMessageHandler,
+  setWsAuthFailureCallback,
 } from './ws-client';
-import { findAnyGoofishTab } from './im-tab-manager';
 import { fetchProductInfo } from './product-fetcher';
 import { fetchMyProducts } from './product-list-fetcher';
 import { filterReply, calcTypingDelay } from './safety-filter';
@@ -145,20 +148,48 @@ function isDuplicateMessage(msg: BuyerMessage): boolean {
 
 async function hasGoofishAuthCookies(): Promise<boolean> {
   try {
-    const [tokenCookie, userCookie] = await Promise.all([
-      chrome.cookies.get({ url: 'https://www.goofish.com', name: '_m_h5_tk' }),
-      chrome.cookies.get({ url: 'https://www.goofish.com', name: 'unb' }),
+    const [tokenCookies, userCookies] = await Promise.all([
+      chrome.cookies.getAll({ name: '_m_h5_tk' }),
+      chrome.cookies.getAll({ name: 'unb' }),
     ]);
-    return Boolean(tokenCookie?.value && userCookie?.value);
+
+    const hasTokenCookie = tokenCookies.some((cookie) =>
+      /(?:^|\.)goofish\.com$|(?:^|\.)idlefish\.com$/i.test(cookie.domain) && Boolean(cookie.value)
+    );
+    const hasUserCookie = userCookies.some((cookie) =>
+      /(?:^|\.)goofish\.com$|(?:^|\.)idlefish\.com$/i.test(cookie.domain) && Boolean(cookie.value)
+    );
+
+    return hasTokenCookie && hasUserCookie;
   } catch (err) {
     console.warn('[Background] 读取闲鱼登录 cookie 失败:', err);
     return false;
   }
 }
 
+async function getLoginState(mode: 'startup' | 'runtime' = 'startup'): Promise<{ loggedIn: boolean; reason: string }> {
+  // cookie 不存在 → 一定没登录（对两种模式都适用）
+  const hasCookies = await hasGoofishAuthCookies();
+  if (!hasCookies) {
+    return { loggedIn: false, reason: 'no_cookies' };
+  }
+
+  // cookie 存在 → 视为已登录
+  // 真正的 token 有效性验证由 WS 连接流程负责：
+  //   - WS 连续认证失败（token 无效）→ onWsAuthFailure 回调立即停止（~15 秒）
+  //   - cookie 被删除 → chrome.cookies.onChanged 监听立即停止
+  // 定时检查只需确认 cookie 还在即可，不依赖 WS 连接状态（WS 可能正在重连）
+  if (isBackgroundWsConnected()) {
+    return { loggedIn: true, reason: 'ws_connected' };
+  }
+  return { loggedIn: true, reason: 'cookie_exists' };
+}
+
 async function disableAutoReplyForLogout(reason: string): Promise<void> {
   console.log('[Background] 检测到闲鱼退出登录，自动停止:', reason);
-  await patchStats({ running: false });
+  setBackgroundWsMessageHandler(null);
+  stopBackgroundWs(reason);
+  await patchStats({ running: false, stoppedByLogout: true });
 }
 
 // ── 监听闲鱼 cookie 变化，退出登录时自动停止 ────────────────────────────
@@ -189,39 +220,21 @@ async function checkLoginAndStop(): Promise<void> {
   }
 
   try {
-    const tab = await findAnyGoofishTab();
-    if (!tab) {
+    const loginState = await probeBackgroundLoginState();
+    if (loginState.loggedIn) {
       consecutiveLoginSoftFailures = 0;
-      return;
-    }
-    if (!tab) return; // 没有闲鱼页面就跳过检查
-
-    const resp = await chrome.tabs.sendMessage(tab, {
-      type: 'MTOP_REQUEST',
-      payload: { api: 'mtop.taobao.idlemessage.pc.login.token', version: '1.0', data: { appKey: '444e9908a51d1cb236a27862abc769c9', deviceId: 'login-check' } },
-    }) as { success?: boolean; data?: Record<string, unknown> } | undefined;
-    const token = (resp?.data?.['data'] as Record<string, unknown> | undefined)?.['accessToken'];
-
-    if (token) {
-      consecutiveLoginSoftFailures = 0;
-      return;
-    }
-
-    const hasCookies = await hasGoofishAuthCookies();
-    if (!hasCookies) {
-      consecutiveLoginSoftFailures = 0;
-      await disableAutoReplyForLogout('mtop login token missing and auth cookies absent');
       return;
     }
 
     consecutiveLoginSoftFailures += 1;
     console.warn(
       '[Background] 登录校验软失败，保留自动回复继续运行:',
-      `attempt=${consecutiveLoginSoftFailures}/${LOGIN_SOFT_FAILURE_LIMIT}`
+      `attempt=${consecutiveLoginSoftFailures}/${LOGIN_SOFT_FAILURE_LIMIT}`,
+      `reason=${loginState.reason}`,
     );
 
     if (consecutiveLoginSoftFailures >= LOGIN_SOFT_FAILURE_LIMIT) {
-      console.warn('[Background] 连续登录校验失败，但 cookie 仍存在，推断为桥接或接口波动，不自动停机');
+      await disableAutoReplyForLogout(`login_state=${loginState.reason}`);
       consecutiveLoginSoftFailures = 0;
     }
     return;
@@ -236,6 +249,17 @@ async function checkLoginAndStop(): Promise<void> {
 
 // 每 60 秒检查一次
 setInterval(checkLoginAndStop, LOGIN_CHECK_INTERVAL);
+
+// 方式3: WS 连续认证失败时立即触发登录检查（比定时检查更快响应）
+setWsAuthFailureCallback(async () => {
+  const stats = await getStats();
+  if (!stats.running) return;
+  console.warn('[Background] WS 连续认证失败，立即执行登录校验');
+  const loginState = await probeBackgroundLoginState();
+  if (!loginState.loggedIn) {
+    await disableAutoReplyForLogout(`ws_auth_failure: ${loginState.reason}`);
+  }
+});
 
 // ── 注册 MAIN 世界脚本（确保 WS 拦截器在页面脚本之前运行）────────────────
 // chrome.scripting.registerContentScripts 比 manifest content_scripts 更可靠
@@ -292,6 +316,8 @@ async function handlePolledMessage(msg: BuyerMessage): Promise<void> {
       intent: 'awaiting_consent',
       timestamp: msg.timestamp,
       conversationId: msg.conversationId,
+      buyerUserId: msg.buyerUserId,
+      participants: msg.participants,
       sent: false,
     });
     return;
@@ -380,6 +406,7 @@ async function initAndSync(): Promise<void> {
     startPolling(handlePolledMessage);
   } else {
     setBackgroundWsMessageHandler(null);
+    stopBackgroundWs('init_not_running');
     console.info('[Background] 系统未运行（stats.running=false），轮询待命中');
   }
 }
@@ -407,7 +434,11 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
       } else if (!stats.running && isPolling()) {
         console.info('[Background] 检测到系统暂停，停止轮询');
         setBackgroundWsMessageHandler(null);
+        stopBackgroundWs('stats_running_false');
         stopPolling();
+      } else if (!stats.running) {
+        setBackgroundWsMessageHandler(null);
+        stopBackgroundWs('stats_running_false_no_poller');
       }
     });
   }
@@ -453,20 +484,10 @@ async function handleMessage(message: RuntimeMessage): Promise<unknown> {
     }
 
     case 'CHECK_LOGIN': {
-      // cookie 不可靠（闲鱼退出不清 cookie），改为实际调用 API 验证
       try {
-        const tab = await findAnyGoofishTab();
-        if (!tab) {
-          console.log('[Background] 登录检查: 无闲鱼页面');
-          return { loggedIn: false, reason: 'no_tab' };
-        }
-        const resp = await chrome.tabs.sendMessage(tab, {
-          type: 'MTOP_REQUEST',
-          payload: { api: 'mtop.taobao.idlemessage.pc.login.token', version: '1.0', data: { appKey: '444e9908a51d1cb236a27862abc769c9', deviceId: 'login-check' } },
-        }) as { success?: boolean; data?: Record<string, unknown> } | undefined;
-        const token = (resp?.data?.['data'] as Record<string, unknown> | undefined)?.['accessToken'];
-        console.log('[Background] 登录检查: API 返回 success=', resp?.success, 'hasToken=', !!token);
-        return { loggedIn: !!(resp?.success && token) };
+        const loginState = await probeBackgroundLoginState();
+        console.log('[Background] 登录检查结果:', loginState);
+        return loginState;
       } catch (err) {
         console.log('[Background] 登录检查异常:', err);
         return { loggedIn: false, reason: 'error' };
@@ -493,6 +514,9 @@ async function handleMessage(message: RuntimeMessage): Promise<unknown> {
     case 'TOGGLE_AUTO_REPLY': {
       return patchStats({ running: message.payload.enabled });
     }
+
+    case 'RELEASE_REPLY':
+      return handleReleaseReply(message.payload.logId);
 
     default:
       return null;
@@ -533,6 +557,8 @@ async function handleBuyerMessage(msg: BuyerMessage): Promise<{ success: boolean
       intent: 'awaiting_consent',
       timestamp: msg.timestamp,
       conversationId: msg.conversationId,
+      buyerUserId: msg.buyerUserId,
+      participants: msg.participants,
       sent: false,
     });
     return { success: false };
@@ -618,4 +644,66 @@ async function handleOrderCreated(order: OrderEvent): Promise<void> {
   }
 
   await Promise.allSettled(promises);
+}
+
+async function handleReleaseReply(logId: string): Promise<{ success: boolean; reply?: string; error?: string }> {
+  const [logs, settings] = await Promise.all([getMessageLogs(), getSettings()]);
+  const log = logs.find((entry) => entry.id === logId);
+  if (!log) {
+    return { success: false, error: 'message_log_not_found' };
+  }
+  if (log.sent) {
+    return { success: true, reply: log.reply };
+  }
+
+  let reply = log.reply;
+  let intent = log.intent;
+
+  if (!reply) {
+    const msg: BuyerMessage = {
+      id: log.id,
+      buyerName: log.buyerName,
+      content: log.content,
+      timestamp: log.timestamp,
+      conversationId: log.conversationId,
+      buyerUserId: log.buyerUserId,
+      participants: log.participants,
+    };
+
+    const { reply: rawReply, intent: generatedIntent } = await callAgentAI(msg, settings.ai);
+    if (!rawReply) {
+      await updateMessageLog(log.id, { intent: generatedIntent, sendDetail: 'no_reply' });
+      return { success: false, error: 'no_reply' };
+    }
+
+    reply = filterReply(rawReply);
+    intent = generatedIntent;
+  }
+
+  const sendResult = await sendReplyViaAPI(log.conversationId, reply, log.buyerUserId, log.participants);
+  await updateMessageLog(log.id, {
+    reply,
+    intent,
+    sent: sendResult.success,
+    sendVia: sendResult.via,
+    usedConversationId: sendResult.usedConversationId,
+    sendDetail: sendResult.detail,
+  });
+
+  console.info('[Background] 放行发送结果:', {
+    logId: log.id,
+    originalConversationId: log.conversationId,
+    usedConversationId: sendResult.usedConversationId ?? log.conversationId,
+    via: sendResult.via,
+    success: sendResult.success,
+    detail: sendResult.detail ?? '',
+  });
+
+  if (!sendResult.success) {
+    return { success: false, reply, error: sendResult.detail ?? 'release_send_failed' };
+  }
+
+  const stats = await getStats();
+  await patchStats({ processedMessages: stats.processedMessages + 1 });
+  return { success: true, reply };
 }

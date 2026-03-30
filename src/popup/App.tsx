@@ -1,32 +1,72 @@
 import React, { useEffect, useState } from 'react';
 import ReactDOM from 'react-dom/client';
-import { getStats, patchStats, type StoredStats } from '../shared/storage';
-import type { PopupStats } from '../shared/types';
+import { getSettings, getStats, patchStats, saveSettings } from '../shared/storage';
+import type { AppSettings, PopupStats } from '../shared/types';
+import { getDirectSendConfigError } from '../shared/ai-config';
 
 function Popup(): JSX.Element {
   const [stats, setStats] = useState<PopupStats>({
-    running: true,
+    running: false,
     processedMessages: 0,
     todayOrders: 0,
   });
+  const [settings, setSettings] = useState<AppSettings | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    loadStats();
+    void loadData();
   }, []);
 
-  async function loadStats(): Promise<void> {
-    const s = await getStats();
+  async function loadData(): Promise<void> {
+    const [s, cfg] = await Promise.all([getStats(), getSettings()]);
     setStats({
       running: s.running,
       processedMessages: s.processedMessages,
       todayOrders: s.todayOrders,
     });
+    setSettings(cfg);
     setLoading(false);
   }
 
   async function toggleRunning(): Promise<void> {
-    const next = await patchStats({ running: !stats.running });
+    if (!stats.running) {
+      const currentSettings = settings ?? await getSettings();
+      if (!currentSettings.ai.directSendAuthorized) {
+        const configError = getDirectSendConfigError(currentSettings.ai);
+        if (configError) {
+          window.alert(`${configError}\n请先到设置页完善 AI 配置后再开启自动直发授权。`);
+          return;
+        }
+
+        const confirmed = window.confirm(
+          '启动运行监控需要开启 AI 自动直发授权。启用后，系统会在你已配置 AI 服务的前提下自动读取买家消息并直接发送回复。是否现在开启？',
+        );
+        if (!confirmed) {
+          return;
+        }
+
+        const nextSettings = {
+          ...currentSettings,
+          ai: {
+            ...currentSettings.ai,
+            directSendAuthorized: true,
+            autoReplyEnabled: true,
+            reviewModeEnabled: false,
+          },
+        };
+        await saveSettings(nextSettings);
+        setSettings(nextSettings);
+      }
+
+      const loginState = await chrome.runtime.sendMessage({ type: 'CHECK_LOGIN' }) as
+        { loggedIn?: boolean } | undefined;
+      if (!loginState?.loggedIn) {
+        window.alert('当前闲鱼登录无效，请先打开闲鱼页面重新登录。');
+        return;
+      }
+    }
+
+    const next = await patchStats({ running: !stats.running, stoppedByLogout: false } as any);
     setStats((prev) => ({ ...prev, running: next.running }));
   }
 

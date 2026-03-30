@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "闲鱼智能客服助手",
-  "version": "1.0.0",
-  "description": "闲鱼智能客服 Chrome 扩展，支持 AI 自动回复与订单通知。",
+  "name": "YuChatAI 闲鱼智能客服助手",
+  "version": "1.0.1",
+  "description": "闲鱼智能客服 Chrome 扩展，支持 AI 回复、手动放行与订单通知。",
   "permissions": [
     "storage",
     "notifications",
@@ -35,7 +35,7 @@
     }
   ],
   "action": {
-    "default_title": "闲鱼智能客服助手",
+    "default_title": "YuChatAI 闲鱼智能客服助手",
     "default_icon": {
       "16": "icons/icon-16.png",
       "32": "icons/icon-32.png",
@@ -54,8 +54,14 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["assets/*", "content-injected.js"],
-      "matches": ["https://*.goofish.com/*", "https://*.idlefish.com/*"]
+      "resources": [
+        "assets/*",
+        "content-injected.js"
+      ],
+      "matches": [
+        "https://*.goofish.com/*",
+        "https://*.idlefish.com/*"
+      ]
     }
   ]
 }

@@ -1,6 +1,6 @@
 {
   "name": "xianyu-smart-assistant",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "闲鱼智能客服 Chrome 扩展 - AI 自动回复 + 订单通知",
   "type": "module",
   "scripts": {
